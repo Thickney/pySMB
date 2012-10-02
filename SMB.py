@@ -243,10 +243,13 @@ class Coin (Entity):
 class BrickBlock (Entity):
     def __init__ (self, x, y, w, h, color):
         Entity.__init__(self, x, y, w, h, color)
-        self.allStates = { "idle":BrickBlockStateIdle(), "hitLight":BrickBlockStateHitLight(), "hitHard":BrickBlockStateHitHard() }   
+        self.allStates = { "idle":BrickBlockStateIdle(), "hitLight":BrickBlockStateHitLight(), "hitHard":BrickBlockStateHitHard(), "coinHit":BrickBlockStateCoinHit() }   
         self.prevState = self.allStates.get("idle")
         self.currState = self.prevState
         self.destroyed = False
+        self.hasCoins = False
+        self.used = False
+        self.numCoins = 8
         
     def update (self, deltaTime):
         self.currState.execute(self, deltaTime)
@@ -928,11 +931,50 @@ class BrickBlockStateIdle (State):
             for tile in entity.collidingObjects:
                 sides = collision_sides(entity.rect, tile.rect)
                 # If Mario jumped up and collided with block.
-                if isinstance(tile, Mario) and tile.y > entity.y and not tile.isSuper:
+                if isinstance(tile, Mario) and tile.y > entity.y and entity.hasCoins:
+                    entity.changeState("coinHit")
+                elif isinstance(tile, Mario) and tile.y > entity.y and not tile.isSuper:
                     entity.changeState("hitLight")
                 elif isinstance(tile, Mario) and tile.y > entity.y and tile.isSuper:
                     entity.changeState("hitHard")
             resetCollisions(entity)
+
+    def exitState(self, entity):
+        return
+
+# BrickBlockStateCoinHit
+class BrickBlockStateCoinHit (State):
+    def enterState (self, entity):
+        self.tookCoin = False
+        self.startY = entity.y
+        self.maxY = entity.y - entity.h/2
+        self.step = -0.2
+
+    def execute (self, entity, deltaTime):
+        if not entity.used and entity.hasCoins:
+            if not self.tookCoin:
+                # Spawn coin
+                for obj in level.entities:
+                    if isinstance(obj, Coin):
+                        obj.setX(entity.x + 20)
+                        obj.setY(entity.y - tileWidth)
+                        obj.changeState("idle")
+                    
+                # Update coins left in block
+                entity.numCoins -= 1
+                self.tookCoin = True
+                if entity.numCoins == 0:
+                    entity.hasCoins = False
+                    entity.used = True
+                    entity.color = grey
+
+            # Nudge block up then back down
+            entity.setY(entity.y + self.step * deltaTime)
+            if entity.y <= self.maxY:
+                self.step *= -1
+            if entity.y >= self.startY:
+                entity.setY(self.startY)
+                entity.changeState("idle")
 
     def exitState(self, entity):
         return
@@ -1184,6 +1226,11 @@ class Level:
 
         elif (tile == blockTile):
             self.map.append(BrickBlock(xPos, yPos, tileWidth, tileWidth, brickBrown))
+
+        elif (tile == bCoinTile):
+            coinBlock = BrickBlock(xPos, yPos, tileWidth, tileWidth, brickBrown)
+            coinBlock.hasCoins = True
+            self.map.append(coinBlock)
 
         elif (tile == qCoinTile):
             self.map.append(QuestionBlock(xPos, yPos, tileWidth, tileWidth, "coin", gold))
