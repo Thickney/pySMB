@@ -7,7 +7,7 @@
                                                                                                                 1                                                                              ggg
                                                                                                                                                                                               gggg
                                                                                                                                                                                              ggggg                b
-            b1b-b                         ppp         ppp     2            b1b                b        b3    -  -  -    b        bb      g  g          gg  g              bb-b              gggggg               bbb
+        -   b1b-b                         ppp         ppp     2            b1b                b        b3    -  -  -    b        bb      g  g          gg  g              bb-b              gggggg               bbb
                                 ppp       ppp         ppp                                                                               gg  gg        ggg  gg                              ggggggg              bbbbb
                      ppp        ppp       ppp         ppp                                                                              ggg  ggg      gggg  ggg     ppp                ppp gggggggg              bb bb
    m         @       ppp        ppp  @    ppp    @@   ppp                                                    #             @@@@       gggg  gggg    ggggg  gggg    ppp                pppggggggggg       g      bb bb

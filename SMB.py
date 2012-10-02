@@ -6,10 +6,8 @@ from pygame.locals import *
 # Constants
 ####################################
 
-# HUD
-lives = "lives: x"
-level = "1-1"
-score = "0000000"
+# Game
+worldTime = 500
 
 # General Colours
 red = [255,0,0]
@@ -83,26 +81,53 @@ class Camera:
 # Hud
 class HUD (object):
     def __init__ (self):
-        self.scoreX = screenSize[0] - 3 * (screenSize[0]/4)
-        self.levelX = screenSize[0] - 2 * (screenSize[0]/4)
-        self.livesX = screenSize[0] - screenSize[0]/4
+        self.world = "1-1"
+        self.score = 0
+        self.coins = 0
+        self.timeRemaining = worldTime
+        self.scoreX = screenSize[0] / 8
+        self.worldX = screenSize[0] - screenSize[0] / 2
+        self.coinsX = screenSize[0] / 4 + screenSize[0] / 8
+        self.timeX = screenSize[0] - screenSize[0] / 4
         self.y = 50
+        self.marioString = "MARIO"
+        self.worldString = "WORLD"
+        self.timeString = "TIME"
+        self.elapsed = 0
 
-    def update (self):
-        return
+    def update (self, deltaTime):
+        self.elapsed += deltaTime
+
+        if self.elapsed > 1000:
+            self.timeRemaining -= 1
+            
+            remainder = self.elapsed - 1000
+            self.elapsed = remainder
 
     def draw (self):
-        scoreString = 'SCORE: ' + str(0)
+        # Score
+        ren = font.render(self.marioString, False, white)
+        screen.blit(ren, (self.scoreX, self.y - 25))
+        scoreString = "%08d"%self.score
         ren = font.render(scoreString, False, white)
         screen.blit(ren, (self.scoreX, self.y))
 
-        levelString = 'WORLD: 1-1'
-        ren = font.render(levelString, False, white)
-        screen.blit(ren, (self.levelX, self.y))
+        # Coins
+        coinString = "O x %02d"%self.coins
+        ren = font.render(coinString, False, white)
+        screen.blit(ren, (self.coinsX, self.y))
 
-        livesString = 'O x ' + str(level.getMario().lives)
-        ren = font.render(livesString, False, white)
-        screen.blit(ren, (self.livesX, self.y))
+        # World
+        ren = font.render(self.worldString, False, white)
+        screen.blit(ren, (self.worldX, self.y - 25))
+        ren = font.render(self.world, False, white)
+        screen.blit(ren, (self.worldX, self.y))
+
+        # Time
+        ren = font.render(self.timeString, False, white)
+        screen.blit(ren, (self.timeX, self.y - 25))
+        ren = font.render(str(self.timeRemaining), False, white)
+        screen.blit(ren, (self.timeX, self.y))
 
 # Struct
 class Struct (object):
@@ -939,6 +964,7 @@ class CoinStateIdle (State):
         entity.active = True
         self.timer = 0
         self.delay = 1000
+        hud.coins += 1
 
     def execute (self, entity, deltaTime):
         self.timer += deltaTime
@@ -1272,7 +1298,7 @@ def tick ():
     deltaTime = clock.tick(60)
     level.update(deltaTime)
     camera.update()
-    hud.update()
+    hud.update(deltaTime)
     
 
 ####################################
