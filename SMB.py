@@ -6,6 +6,7 @@ from pygame.locals import *
 # Constants
 ####################################
 
+# General Colours
 red = [255,0,0]
 green = [0,255,0]
 blue = [0,0,255]
@@ -17,6 +18,7 @@ gold = [255,215,0]
 groundBrown = [160,82,45]
 brickBrown = [205,133,63]
 
+# Entity Colours
 koopaColor = [50, 205, 50]
 goombaColor = [220, 110, 75]
 marioColor = white
@@ -26,6 +28,26 @@ coinColor = gold
 oneUpColor = [40, 230, 40]
 flowerColor = [200, 50, 10]
 
+# Tiles
+tileWidth = 50
+blankTile = ' '
+groundTile = 'g'
+marioTile = 'm'
+goombaTile = '@'
+koopaTile = '#'
+pipeTile = 'p'
+blockTile = 'b'
+qCoinTile = '-'
+qMushTile = '1'
+qOneUpTile = '2'
+qStarTile = '3'
+
+# Physics
+gravity = 0.02
+maxVelocity = 1
+marioWalk = 0.5
+marioRun = 1.0
+
 ####################################
 # Classes
 ####################################
@@ -33,11 +55,11 @@ flowerColor = [200, 50, 10]
 # Camera
 class Camera:
     def __init__ (self):
-        self.getValues()
         self.x = 0
         self.y = 0
         self.w = screenSize[0]
         self.h = screenSize[1]
+        self.getValues()
 
     def update (self):
         self.getValues()
@@ -46,10 +68,12 @@ class Camera:
         mario = level.getMario()
         if mario is None:
             return
-        if mario.x < screenSize[0]/2:
-            self.x = 0
-        else:
+        if mario.x > self.x + self.w/2 - mario.w/2:
             self.x = level.getMario().x - screenSize[0]/2 + tileWidth/2
+
+        # Make sure mario doesn't move off-screen to the left
+        if mario.x < self.x:
+            mario.x = self.x
 
 # Struct
 class Struct (object):
@@ -171,6 +195,24 @@ class QuestionBlock (Entity):
     def update (self, deltaTime):
         self.currState.execute(self, deltaTime)
 
+# OneUpBlock
+class OneUpBlock (Entity):
+    def __init__ (self, x, y, w, h, contents, color):
+        Entity.__init__(self, x, y, w, h, color)
+        self.allStates = { "idle":OneUpBlockStateIdle(), "hit":QuestionBlockStateHit() }
+        self.prevState = self.allStates.get("idle")
+        self.currState = self.prevState
+        self.contents = contents
+        self.used = False
+        self.found = False
+
+    def update (self, deltaTime):
+        self.currState.execute(self, deltaTime)
+
+    def draw (self):
+        if self.found:
+            Entity.draw(self)
+
 # GroundBlock 
 class GroundBlock (Entity):
     def __init__ (self, x, y, w, h, color):
@@ -184,7 +226,7 @@ class GroundBlock (Entity):
 
 # Mushroom
 class Mushroom (Entity):
-    def __init__ (self, x, y, w, h, color):
+    def __init__ (self, x, y, w, h, mType, color):
         Entity.__init__(self, x, y, w, h, color)
         self.allStates = { "spawn":MushroomStateSpawn(), "move":MushroomStateMove(), "fall":MushroomStateFall() }
         self.prevState = self.allStates.get("spawn")
@@ -192,6 +234,7 @@ class Mushroom (Entity):
         self.active = False
         self.dy = 0
         self.velocity = 0
+        self.mType = mType
 
     def update (self, deltaTime):
         if self.active:
@@ -205,7 +248,7 @@ class Mushroom (Entity):
 class Goomba (Enemy):
     def __init__ (self, x, y, w, h, spawnX, color):
         Enemy.__init__(self, x, y, w, h, color)
-        self.allStates = { "wait":EnemyStateWait(), "move":EnemyStateMove(), "fall":EnemyStateFall(), "stomped":GoombaStateStomped() }
+        self.allStates = { "wait":EnemyStateWait(), "move":EnemyStateMove(), "fall":EnemyStateFall(), "stomped":GoombaStateStomped(), "hit":EnemyStateHit() }
         self.prevState = self.allStates.get("wait")
         self.currState = self.prevState
         self.spawnX = spawnX
@@ -228,7 +271,7 @@ class Goomba (Enemy):
 class Koopa (Enemy):
     def __init__ (self, x, y, w, h, spawnX, color):
         Enemy.__init__(self, x, y, w, h, color)
-        self.allStates = { "wait":EnemyStateWait(), "move":EnemyStateMove(), "fall":EnemyStateFall(), "stomped":KoopaStateStomped(), "shellMove":KoopaStateShellMove() }
+        self.allStates = { "wait":EnemyStateWait(), "move":EnemyStateMove(), "fall":EnemyStateFall(), "stomped":KoopaStateStomped(), "shellMove":KoopaStateShellMove(), "hit":EnemyStateHit() }
         self.prevState = self.allStates.get("wait")
         self.currState = self.prevState
         self.spawnX = spawnX
@@ -270,6 +313,21 @@ class Mario (Entity):
         self.isDead = False
         self.dy = 0
         self.velocity = 0
+        self.lives = 3
+        self.startX = x
+        self.startY = y
+
+    def addLife (self):
+        self.lives += 1
+
+    def removeLife (self):
+        self.lives -= 1
+        if self.lives < 0:
+            self.isDead = True
+
+    def reset (self):
+        self.setX(self.startX)
+        self.setY(self.startY)
         
     def update (self, deltaTime):
         self.currState.execute(self, deltaTime)
@@ -307,13 +365,11 @@ class MarioStateIdle (State):
             for tile in entity.collidingObjects:
                 sides = collision_sides(entity.rect, tile.rect)
                 if isinstance(tile, Enemy) and not tile.isDead and (sides.left or sides.right or sides.top):
-                    entity.isDead = True
-            entity.hasCollision = False
-            entity.collidingObjects = []
+                    entity.removeLife()
+            resetCollisions(entity)
 
     def exitState (self, entity):
-        entity.hasCollision = False
-        entity.collidingObjects = []
+        resetCollisions(entity)
 
 # MarioStateMove
 class MarioStateMove (State):
@@ -358,21 +414,22 @@ class MarioStateMove (State):
         # Check for move into something.
         if entity.hasCollision:
             for tile in entity.collidingObjects:
+                if isinstance(tile.currState, EnemyStateHit):
+                    continue
+                
                 sides = collision_sides(entity.rect, tile.rect)
                 if isinstance(tile, Enemy) and (sides.left or sides.right or sides.top):
                     # If an enemy and still alive then hurt mario.
                     if not tile.isDead:
-                        entity.isDead = True
+                        entity.removeLife()
                 if sides.left:
                     entity.setX(tile.x + tile.w)
                 elif sides.right:
                     entity.setX(tile.x - entity.w)
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
  
     def exitState (self, entity):
-        entity.hasCollision = False
-        entity.collidingObjects = []
+        resetCollisions(entity)
 
 # MarioStateJump
 class MarioStateJump (State):
@@ -401,14 +458,17 @@ class MarioStateJump (State):
         # Check collisions.
         if entity.hasCollision:
             for tile in entity.collidingObjects:
+                if isinstance(tile.currState, EnemyStateHit):
+                    continue
+                
                 sides = collision_sides(entity.rect, tile.rect)
-                if sides.top:
+                if sides.top and not isinstance(tile, Pipe) and not isinstance(tile, GroundBlock):
                     entity.setY(tile.bottom() + (entity.y - tile.y))
                     entity.velocity = 0
                     entity.dy = 0
                 if sides.bottom:
+                    entity.dy = 0
                     if isinstance(tile, Enemy) and not tile.isDead:
-                        entity.dy = 0
                         entity.velocity = -0.15
                     else:
                         entity.setY(tile.top() - entity.h)
@@ -425,8 +485,7 @@ class MarioStateJump (State):
         entity.translate(self.dx * deltaTime, entity.dy * deltaTime)
 
     def exitState (self, entity):
-        entity.hasCollision = False
-        entity.collidingObjects = []
+        resetCollisions(entity)
     
 
 # MarioStateFall
@@ -452,6 +511,9 @@ class MarioStateFall (State):
         # Check for landing
         if entity.hasCollision:
             for tile in entity.collidingObjects:
+                if isinstance(tile.currState, EnemyStateHit):
+                    continue
+                
                 sides = collision_sides(entity.rect, tile.rect)
                 if sides.bottom:
                     if isinstance(tile, Enemy) and not tile.isDead:
@@ -471,8 +533,7 @@ class MarioStateFall (State):
         entity.translate(self.dx * deltaTime, entity.dy * deltaTime)
 
     def exitState (self, entity):
-        entity.hasCollision = False
-        entity.collidingObjects = []
+        resetCollisions(entity)
 
 # EnemyStateWait
 class EnemyStateWait (State):
@@ -519,9 +580,7 @@ class EnemyStateMove (State):
                 elif sides.right:
                     entity.setX(tile.x - entity.w)
                     entity.direction = "left"
-                
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
 
     def exitState(self, entity):
         return
@@ -546,6 +605,22 @@ class EnemyStateFall (State):
             entity.changeState("move")
 
     def exitState(self, entity):
+        return
+
+# EnemyStateHit
+class EnemyStateHit (State):
+    def enterState (self, entity):
+        entity.isDead = True
+        self.dy = -4.0
+
+    def execute (self, entity, deltaTime):
+        entity.translate(0, self.dy)
+        self.dy += gravity * deltaTime
+        if entity.y > camera.h:
+            entity.isDeadDead = True
+            level.removeEntity(entity)
+
+    def exitState (self, entity):
         return
 
 # GoombaStateStomped
@@ -607,9 +682,7 @@ class KoopaStateStomped (State):
                     # Shoot shell.
                     entity.isDead = False
                     entity.changeState("shellMove")
-
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
 
     def exitState (self, entity):
         return
@@ -621,9 +694,9 @@ class KoopaStateShellMove (State):
 
     def execute (self, entity, deltaTime):
         if entity.direction == "left":
-            entity.translate(-(0.8 * deltaTime), 0)
+            entity.translate(-(marioRun * deltaTime), 0)
         else:
-            entity.translate(0.8 * deltaTime, 0)
+            entity.translate(marioRun * deltaTime, 0)
 
         # Check if should fall.
         shouldFall = should_fall(entity)
@@ -634,20 +707,21 @@ class KoopaStateShellMove (State):
         if entity.hasCollision:
             for tile in entity.collidingObjects:
                 sides = collision_sides(entity.rect, tile.rect)
+
+                if isinstance(tile, Enemy):
+                    tile.changeState("hit")
                 
-                # That something was Mario.
-                if sides.top and isinstance(tile, Mario):
+                elif sides.top and isinstance(tile, Mario):
                     entity.changeState("stomped")
                 
-                if sides.left:
+                elif sides.left:
                     entity.setX(tile.x + tile.w)
                     entity.direction = "right"
+                    
                 elif sides.right:
                     entity.setX(tile.x - entity.w)
                     entity.direction = "left"
-                
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
 
     def exitState(self, entity):
         return
@@ -663,8 +737,24 @@ class QuestionBlockStateIdle (State):
                 # If Mario jumped up and collided with block.
                 if isinstance(tile, Mario) and tile.y > entity.y:
                     entity.changeState("hit")
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
+
+    def exitState(self, entity):
+        return
+
+# OneUpBlockStateIdle
+class OneUpBlockStateIdle (State):
+    def enterState (self, entity):
+        return
+
+    def execute (self, entity, deltaTime):
+        if entity.hasCollision:
+            for tile in entity.collidingObjects:
+                sides = collision_sides(entity.rect, tile.rect)
+                if sides.bottom and isinstance(tile, Mario) and tile.y > entity.y:
+                    entity.changeState("hit")
+                    entity.found = True
+            resetCollisions(entity)
 
     def exitState(self, entity):
         return
@@ -684,7 +774,14 @@ class QuestionBlockStateHit (State):
 
             elif entity.contents == "mushroom":
                 for obj in level.entities:
-                    if isinstance(obj, Mushroom):
+                    if isinstance(obj, Mushroom) and obj.mType == "super":
+                        obj.setX(entity.x)
+                        obj.setY(entity.y)
+                        obj.changeState("spawn")
+
+            elif entity.contents == "1up":
+                for obj in level.entities:
+                    if isinstance(obj, Mushroom) and obj.mType == "1up":
                         obj.setX(entity.x)
                         obj.setY(entity.y)
                         obj.changeState("spawn")
@@ -707,8 +804,7 @@ class BrickBlockStateIdle (State):
                 # If Mario jumped up and collided with block.
                 if isinstance(tile, Mario) and tile.y > entity.y:
                     entity.changeState("hitLight")
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
 
     def exitState(self, entity):
         return
@@ -750,8 +846,7 @@ class PipeStateIdle (State):
 
     def execute (self, entity, deltaTime):
         if entity.hasCollision:
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
         
     def exitState(self, entity):
         return
@@ -822,8 +917,15 @@ class MushroomStateMove (State):
             for tile in entity.collidingObjects:
                 sides = collision_sides(entity.rect, tile.rect)
                 
-                # That something was Mario.
-                if sides.top and isinstance(tile, Mario):
+                if isinstance(tile, Mario):
+                    if entity.mType == "super":
+                        # Make Mario super
+                        print ""
+                        
+                    elif entity.mType == "1up":
+                        tile.addLife()
+
+                    # Reset Mushroom entity
                     entity.active = False
                     entity.setX(-100)
                     entity.setY(100)
@@ -832,12 +934,11 @@ class MushroomStateMove (State):
                 if sides.left:
                     entity.setX(tile.x + tile.w)
                     entity.direction = "right"
+                    
                 elif sides.right:
                     entity.setX(tile.x - entity.w)
                     entity.direction = "left"
-                
-            entity.hasCollision = False
-            entity.collidingObjects = []
+            resetCollisions(entity)
 
     def exitState(self, entity):
         return
@@ -886,9 +987,9 @@ class Level:
 
         # Add reusable items.
         self.entities.append(Coin(-100, 0, 10, 30, coinColor))
-        self.entities.append(Mushroom(-100, 100, tileWidth, tileWidth, mushroomColor))
+        self.entities.append(Mushroom(-100, 100, tileWidth, tileWidth, "super", mushroomColor))
         #self.entities.append(Star(-100, 200, tileWidth, tileWidth, starColor))
-        #self.entities.append(OneUp(-100, 300, tileWidth, tileWidth, oneUpColor))
+        self.entities.append(Mushroom(-100, 300, tileWidth, tileWidth, "1up", oneUpColor))
         #self.entities.append(Flower(-100, 400, tileWidth, tileWidth, flowerColor))
 
     def loadItem (self, tile, x, y):
@@ -913,6 +1014,9 @@ class Level:
         elif (tile == qMushTile):
             self.map.append(QuestionBlock(xPos, yPos, tileWidth, tileWidth, "mushroom", gold))
 
+        elif (tile == qOneUpTile):
+            self.map.append(OneUpBlock(xPos, yPos, tileWidth, tileWidth, "1up", grey))
+
         elif (tile == pipeTile):
             self.map.append(Pipe(xPos, yPos, tileWidth, tileWidth, green))
 
@@ -925,6 +1029,7 @@ class Level:
     def update (self, deltaTime):
         for tile in self.map:
             tile.update(deltaTime)
+            
         for entity in self.entities:
             entity.update(deltaTime)
         
@@ -932,13 +1037,13 @@ class Level:
 
     def checkCollisions (self):
         for entity in self.entities:
-            # Check Mario/Entity collisions.
-            if not isinstance(entity, Mario):
-                mario = self.getMario()
-                if entity.rect.colliderect(mario.rect):
-                    entity.addCollision(mario)
-                    mario.addCollision(entity)
 
+            # Check Entity/Entity collisions.
+            for entity2 in self.entities:
+                if entity != entity2 and entity.rect.colliderect(entity2.rect):
+                    entity.addCollision(entity2)
+                    entity2.addCollision(entity)
+                    
             # Check Entity/World collisions.
             for tile in self.map:
                 if tile.rect.colliderect(entity.rect):
@@ -985,27 +1090,9 @@ pygame.init()
 screenSize = [1280,720]
 screenBGColor = lightBlue
 
-# Tiles
-tileWidth = 50
-blankTile = ' '
-groundTile = 'g'
-marioTile = 'm'
-goombaTile = '@'
-koopaTile = '#'
-pipeTile = 'p'
-blockTile = 'b'
-qCoinTile = '-'
-qMushTile = '1'
-qOneUpTile = '2'
-qStarTile = '3'
-
 # Levels
 levelHandle = "1-1.txt"
 level = LevelOneOne(levelHandle)
-
-# Physics
-gravity = 0.02
-maxVelocity = 1
 
 # Game
 screen = pygame.display.set_mode(screenSize)
@@ -1018,6 +1105,10 @@ running = True
 ####################################
 # Functions
 ####################################
+
+def resetCollisions (entity):
+    entity.collidingObjects = []
+    entity.hasCollision = False
 
 def collision_sides (a, b):
     sides = Struct(left=False, right=False, top=False, bottom=False)
@@ -1100,10 +1191,17 @@ while running:
     render()
 
     mario = level.getMario()
-    #if not mario is None and mario.isDead:
     if not mario is None and (mario.y > screenSize[1] or mario.isDead):
-        print "Game Over"
-        running = False
+        mario.removeLife()
+        
+        if mario.lives < 0:
+            print "Game Over"
+            running = False
+
+        else:
+            mario.isDead = False
+            mario.reset()
+            camera = Camera()
 
 pygame.quit()
 
