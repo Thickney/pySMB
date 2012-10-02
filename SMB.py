@@ -44,7 +44,7 @@ bCoinTile = '+'
 qCoinTile = '-'
 qMushTile = '1'
 qOneUpTile = '2'
-qStarTile = '3'
+qStarTile = '*'
 
 # Physics
 gravity = 0.02
@@ -1137,6 +1137,9 @@ class MushroomStateMove (State):
         # Check for move into something.
         if entity.hasCollision:
             for tile in entity.collidingObjects:
+                if isinstance(tile, Coin) or isinstance(tile, Enemy):
+                    return
+                
                 sides = collision_sides(entity.rect, tile.rect)
 
                 checkMushroomMarioCollision(entity, tile)
@@ -1175,6 +1178,9 @@ class MushroomStateFall (State):
         # Check mario pick-up in air
         if entity.hasCollision:
             for tile in entity.collidingObjects:
+                if isinstance(tile, Coin) or isinstance(tile, Enemy):
+                    return
+                
                 checkMushroomMarioCollision(entity, tile)
 
     def exitState(self, entity):
@@ -1266,7 +1272,6 @@ class Level:
             for entity2 in self.entities:
                 if entity != entity2 and entity.rect.colliderect(entity2.rect):
                     entity.addCollision(entity2)
-                    entity2.addCollision(entity)
                     
             # Check Entity/World collisions.
             for tile in self.map:
@@ -1370,10 +1375,10 @@ def checkMushroomMarioCollision (entity, tile):
             tile.addLife()
 
         # Reset Mushroom entity
-        entity.active = False
         entity.setX(-100)
         entity.setY(100)
         entity.changeState("spawn")
+        entity.active = False
 
 def should_fall (entity):
     for tile in level.map:
