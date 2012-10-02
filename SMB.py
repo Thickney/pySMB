@@ -40,6 +40,7 @@ goombaTile = '@'
 koopaTile = '#'
 pipeTile = 'p'
 blockTile = 'b'
+bCoinTile = '+'
 qCoinTile = '-'
 qMushTile = '1'
 qOneUpTile = '2'
@@ -64,6 +65,10 @@ class Camera:
         self.h = screenSize[1]
         self.getValues()
 
+    def reset (self):
+        self.x = 0
+        self.y = 0
+
     def update (self):
         self.getValues()
 
@@ -81,10 +86,8 @@ class Camera:
 # Hud
 class HUD (object):
     def __init__ (self):
+        self.reset()
         self.world = "1-1"
-        self.score = 0
-        self.coins = 0
-        self.timeRemaining = worldTime
         self.scoreX = screenSize[0] / 8
         self.worldX = screenSize[0] - screenSize[0] / 2
         self.coinsX = screenSize[0] / 4 + screenSize[0] / 8
@@ -93,7 +96,12 @@ class HUD (object):
         self.marioString = "MARIO"
         self.worldString = "WORLD"
         self.timeString = "TIME"
+
+    def reset (self):
+        self.score = 0
+        self.coins = 0
         self.elapsed = 0
+        self.timeRemaining = worldTime
 
     def update (self, deltaTime):
         self.elapsed += deltaTime
@@ -104,6 +112,12 @@ class HUD (object):
             remainder = self.elapsed - 1000
             self.elapsed = remainder
 
+        if self.timeRemaining == 0:
+            level.getMario().removeLife()
+            level.reset()
+            camera.reset()
+            self.reset()
+            
     def draw (self):
         # Score
         ren = font.render(self.marioString, False, white)
@@ -229,12 +243,17 @@ class Coin (Entity):
 class BrickBlock (Entity):
     def __init__ (self, x, y, w, h, color):
         Entity.__init__(self, x, y, w, h, color)
-        self.allStates = { "idle":BrickBlockStateIdle(), "hitLight":BrickBlockStateHitLight() }#, "hit_hard":BrickBlockStateHitHard() }   
+        self.allStates = { "idle":BrickBlockStateIdle(), "hitLight":BrickBlockStateHitLight(), "hitHard":BrickBlockStateHitHard() }   
         self.prevState = self.allStates.get("idle")
         self.currState = self.prevState
+        self.destroyed = False
         
     def update (self, deltaTime):
         self.currState.execute(self, deltaTime)
+
+    def draw (self):
+        if not self.destroyed:
+            Entity.draw(self)
 
 # QuestionBlock
 class QuestionBlock (Entity):
@@ -909,8 +928,10 @@ class BrickBlockStateIdle (State):
             for tile in entity.collidingObjects:
                 sides = collision_sides(entity.rect, tile.rect)
                 # If Mario jumped up and collided with block.
-                if isinstance(tile, Mario) and tile.y > entity.y:
+                if isinstance(tile, Mario) and tile.y > entity.y and not tile.isSuper:
                     entity.changeState("hitLight")
+                elif isinstance(tile, Mario) and tile.y > entity.y and tile.isSuper:
+                    entity.changeState("hitHard")
             resetCollisions(entity)
 
     def exitState(self, entity):
@@ -932,6 +953,57 @@ class BrickBlockStateHitLight:
             entity.setY(self.startY)
             entity.changeState("idle")
 
+    def exitState(self, entity):
+        return
+
+# BrickBlockStateHitHard
+class BrickBlockStateHitHard:
+    def enterState (self, entity):
+        # Tile is destroyed, don't draw and only update bits now
+        entity.destroyed = True
+
+        # Initialize block bits
+        self.topStep = -0.4
+        self.bottomStep = -0.2
+        self.tinySize = entity.w/2
+        self.tiny = [None, None, None, None]
+        self.tiny[0] = Rect(entity.x, entity.y, self.tinySize, self.tinySize) #tl
+        self.tiny[1] = Rect(entity.x + self.tinySize, entity.y, self.tinySize, self.tinySize) #tr
+        self.tiny[2] = Rect(entity.x, entity.y + self.tinySize, self.tinySize, self.tinySize) #bl
+        self.tiny[3] = Rect(entity.x + self.tinySize, entity.y + self.tinySize, self.tinySize, self.tinySize) #br
+
+    def execute (self, entity, deltaTime):
+        numOffScreen = 0
+        # Top-left
+        self.tiny[0].x -= 0.05 * deltaTime
+        self.tiny[0].y += self.topStep * deltaTime
+        # Top-Right
+        self.tiny[1].x += 0.05 * deltaTime
+        self.tiny[1].y += self.topStep * deltaTime
+        # Bottom-Left
+        self.tiny[2].x -= 0.05 * deltaTime
+        self.tiny[2].y += self.bottomStep * deltaTime
+        # Bottom-Right
+        self.tiny[3].x += 0.05 * deltaTime
+        self.tiny[3].y += self.bottomStep * deltaTime
+
+        self.topStep += gravity
+        self.bottomStep += gravity
+            
+        # Check if done
+        y1 = self.tiny[0].y
+        y2 = self.tiny[1].y
+        y3 = self.tiny[2].y
+        y4 = self.tiny[3].y
+        height = camera.h
+
+        if y1 > height and y2 > height and y3 > height and y4 > height:
+            level.removeTile(entity)
+
+    def draw (self):
+        for piece in self.tiny:
+            pygame.draw.rect(screen, brickBrown, [piece.x - camera.x, piece.y - camera.y, self.tinySize, self.tinySize], 0)
+        
     def exitState(self, entity):
         return
 
@@ -1173,6 +1245,10 @@ class Level:
     def draw (self):
         for tile in self.map:
             tile.draw()
+
+            if isinstance(tile, BrickBlock) and tile.destroyed:
+                tile.currState.draw()
+            
         for entity in self.entities:
             entity.draw()
 
