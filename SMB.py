@@ -6,6 +6,11 @@ from pygame.locals import *
 # Constants
 ####################################
 
+# HUD
+lives = "lives: x"
+level = "1-1"
+score = "0000000"
+
 # General Colours
 red = [255,0,0]
 green = [0,255,0]
@@ -74,6 +79,30 @@ class Camera:
         # Make sure mario doesn't move off-screen to the left
         if mario.x < self.x:
             mario.x = self.x
+
+# Hud
+class HUD (object):
+    def __init__ (self):
+        self.scoreX = screenSize[0] - 3 * (screenSize[0]/4)
+        self.levelX = screenSize[0] - 2 * (screenSize[0]/4)
+        self.livesX = screenSize[0] - screenSize[0]/4
+        self.y = 50
+
+    def update (self):
+        return
+
+    def draw (self):
+        scoreString = 'SCORE: ' + str(0)
+        ren = font.render(scoreString, False, white)
+        screen.blit(ren, (self.scoreX, self.y))
+
+        levelString = 'WORLD: 1-1'
+        ren = font.render(levelString, False, white)
+        screen.blit(ren, (self.levelX, self.y))
+
+        livesString = 'O x ' + str(level.getMario().lives)
+        ren = font.render(livesString, False, white)
+        screen.blit(ren, (self.livesX, self.y))
 
 # Struct
 class Struct (object):
@@ -316,6 +345,8 @@ class Mario (Entity):
         self.lives = 3
         self.startX = x
         self.startY = y
+        self.isSuper = False
+        self.isCrouch = False
 
     def addLife (self):
         self.lives += 1
@@ -328,6 +359,47 @@ class Mario (Entity):
     def reset (self):
         self.setX(self.startX)
         self.setY(self.startY)
+
+    def tryCrouch (self):
+        if not self.isSuper or self.isCrouch:
+            return
+
+        # Resize and set crouch = True
+        self.y += self.h/2
+        self.h /= 2
+        self.rect = Rect(self.x, self.y, self.w, self.h)
+        self.isCrouch = True
+
+    def tryUnCrouch (self):
+        if not self.isSuper or not self.isCrouch:
+            return
+
+        # Resize and set crouch = False
+        self.y -= self.h
+        self.h *= 2
+        self.rect = Rect(self.x, self.y, self.w, self.h)
+        self.isCrouch = False
+        
+    def getSuper (self):
+        return self.isSuper
+
+    def setSuper (self, isSuper):
+        if isSuper and self.isSuper:
+            return
+        if not isSuper and not self.isSuper:
+            return
+        
+        if isSuper and not self.isSuper and not self.isCrouch:
+            self.y -= self.h
+            self.h *= 2
+            self.rect = Rect(self.x, self.y, self.w, self.h)
+
+        elif not isSuper and self.isSuper and not self.isCrouch:
+            self.y += self.h/2
+            self.h /= 2
+            self.rect = Rect(self.x, self.y, self.w, self.h)
+        
+        self.isSuper = isSuper
         
     def update (self, deltaTime):
         self.currState.execute(self, deltaTime)
@@ -360,6 +432,10 @@ class MarioStateIdle (State):
         elif key[K_d]:
             entity.direction = "right"
             entity.changeState("move")
+        elif key[K_s]:
+            entity.tryCrouch()
+        elif not key[K_s]:
+            entity.tryUnCrouch()
 
         if entity.hasCollision:
             for tile in entity.collidingObjects:
@@ -404,6 +480,12 @@ class MarioStateMove (State):
             else:
                 entity.translate(entity.speed * deltaTime, 0)
             entity.direction = "right"
+
+        if key[K_s]:
+            entity.tryCrouch()
+
+        if not key[K_s]:
+            entity.tryUnCrouch()
 
         if not key[K_LSHIFT]:
             self.run = False
@@ -916,21 +998,9 @@ class MushroomStateMove (State):
         if entity.hasCollision:
             for tile in entity.collidingObjects:
                 sides = collision_sides(entity.rect, tile.rect)
-                
-                if isinstance(tile, Mario):
-                    if entity.mType == "super":
-                        # Make Mario super
-                        print ""
-                        
-                    elif entity.mType == "1up":
-                        tile.addLife()
 
-                    # Reset Mushroom entity
-                    entity.active = False
-                    entity.setX(-100)
-                    entity.setY(100)
-                    entity.changeState("spawn")
-                    
+                checkMushroomMarioCollision(entity, tile)
+                
                 if sides.left:
                     entity.setX(tile.x + tile.w)
                     entity.direction = "right"
@@ -962,6 +1032,11 @@ class MushroomStateFall (State):
         if landed:
             entity.changeState("move")
 
+        # Check mario pick-up in air
+        if entity.hasCollision:
+            for tile in entity.collidingObjects:
+                checkMushroomMarioCollision(entity, tile)
+
     def exitState(self, entity):
         return
 
@@ -973,7 +1048,11 @@ class MushroomStateFall (State):
 class Level:
     
     def __init__ (self, fileHandle):
-        self.f = open(fileHandle)
+        self.currentFileHandle = fileHandle
+        self.reset()
+
+    def reset (self):
+        self.f = open(self.currentFileHandle)
         self.tileRows = self.f.readlines()
         self.map = []
         self.entities = []
@@ -1094,10 +1173,14 @@ screenBGColor = lightBlue
 levelHandle = "1-1.txt"
 level = LevelOneOne(levelHandle)
 
+# Font
+font = pygame.font.SysFont('Courier New', 26)
+
 # Game
 screen = pygame.display.set_mode(screenSize)
 pygame.display.set_caption("SMB")
 camera = Camera()
+hud = HUD()
 clock = pygame.time.Clock()
 running = True
 
@@ -1128,6 +1211,20 @@ def collision_sides (a, b):
         sides.bottom = True
 
     return sides
+
+def checkMushroomMarioCollision (entity, tile):
+    if isinstance(tile, Mario):
+        if entity.mType == "super":
+            tile.setSuper(True)
+            
+        elif entity.mType == "1up":
+            tile.addLife()
+
+        # Reset Mushroom entity
+        entity.active = False
+        entity.setX(-100)
+        entity.setY(100)
+        entity.changeState("spawn")
 
 def should_fall (entity):
     for tile in level.map:
@@ -1168,12 +1265,14 @@ def updateFall (entity, deltaTime):
 def render ():
     screen.fill(screenBGColor)
     level.draw()
+    hud.draw()
     pygame.display.flip()
 
 def tick ():
     deltaTime = clock.tick(60)
     level.update(deltaTime)
     camera.update()
+    hud.update()
     
 
 ####################################
